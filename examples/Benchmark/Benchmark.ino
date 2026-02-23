@@ -397,8 +397,272 @@ void runBenchmark() {
 
 
 // ================================================================
-// ARDUINO ENTRY POINTS
+// PART 3 — UNIT TESTS
 // ================================================================
+// Prints "PASS" / "FAIL" for each case, then a summary.
+// All expected values were computed against known UTC reference times.
+// ================================================================
+
+static uint16_t g_pass = 0;
+static uint16_t g_fail = 0;
+
+static void check(const __FlashStringHelper* label, bool ok) {
+    if (ok) {
+        Serial.print(F("  PASS: "));
+        g_pass++;
+    } else {
+        Serial.print(F("  FAIL: "));
+        g_fail++;
+    }
+    Serial.println(label);
+}
+
+void runUnitTests() {
+    Serial.println(F("=== Part 3: Unit Tests ==="));
+    Serial.println();
+    g_pass = 0;
+    g_fail = 0;
+    TimezoneTranslator tz;
+
+    // ----------------------------------------------------------------
+    // 1. Predefined timezone offsets on a known UTC timestamp
+    //    2026-07-15 12:00:00 UTC (summer, DST active for northern-hemisphere zones)
+    // ----------------------------------------------------------------
+    Serial.println(F("1. UTC offset correctness (2026-07-15 12:00 UTC):"));
+    uint64_t utcMs = TimezoneTranslator::dateToMs(2026, 7, 15, 12, 0, 0);
+    TimeStruct ts;
+
+    // UTC (no offset) → hour stays 12
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(utcMs, TZ_UTC));
+    check(F("UTC  → 12:00"), ts.hour == 12 && ts.minute == 0);
+
+    // EST (UTC-4 in summer / EDT) → 08:00
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(utcMs, TZ_EST));
+    check(F("EST  → 08:00 (EDT)"), ts.hour == 8 && ts.minute == 0);
+
+    // PST (UTC-7 in summer / PDT) → 05:00
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(utcMs, TZ_PST));
+    check(F("PST  → 05:00 (PDT)"), ts.hour == 5 && ts.minute == 0);
+
+    // CET (UTC+2 in summer / CEST) → 14:00
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(utcMs, TZ_CET));
+    check(F("CET  → 14:00 (CEST)"), ts.hour == 14 && ts.minute == 0);
+
+    // IST (UTC+5:30, no DST) → 17:30
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(utcMs, TZ_IST));
+    check(F("IST  → 17:30"), ts.hour == 17 && ts.minute == 30);
+
+    // JST (UTC+9, no DST) → 21:00
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(utcMs, TZ_JST));
+    check(F("JST  → 21:00"), ts.hour == 21 && ts.minute == 0);
+
+    // Winter UTC offsets: 2026-12-15 12:00 UTC
+    uint64_t winterUtc = TimezoneTranslator::dateToMs(2026, 12, 15, 12, 0, 0);
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(winterUtc, TZ_EST));
+    check(F("EST  winter → 07:00 (EST)"), ts.hour == 7 && ts.minute == 0);
+    TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(winterUtc, TZ_CET));
+    check(F("CET  winter → 13:00 (CET)"), ts.hour == 13 && ts.minute == 0);
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // 2. DST boundary — US Eastern spring-forward 2026
+    //    2026-03-08 02:00 EST = 07:00:00 UTC
+    //    Before: local is in standard time (UTC-5)
+    //    At/after: local is in DST (UTC-4)
+    // ----------------------------------------------------------------
+    Serial.println(F("2. US Eastern spring-forward 2026-03-08 07:00 UTC:"));
+    {
+        // 2026-03-08 07:00:00.000 UTC  (exact transition moment)
+        uint64_t transition = TimezoneTranslator::dateToMs(2026, 3, 8, 7, 0, 0);
+
+        // 1 ms before: still standard time → local = 01:59:59.999 EST
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(transition - 1, TZ_EST));
+        check(F("1 ms before: hour=01 min=59 (EST)"), ts.hour == 1 && ts.minute == 59);
+
+        // Exactly at transition: now DST → local = 03:00:00.000 EDT
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(transition, TZ_EST));
+        check(F("At transition: hour=03 (EDT)"), ts.hour == 3 && ts.minute == 0);
+
+        // 1 ms after: DST → local = 03:00:00.001 EDT
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(transition + 1, TZ_EST));
+        check(F("1 ms after:  hour=03 (EDT)"), ts.hour == 3 && ts.minute == 0 && ts.ms == 1);
+    }
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // 3. DST boundary — US Eastern fall-back 2026
+    //    2026-11-01 02:00 EDT = 06:00:00 UTC
+    //    Before: local is in DST (UTC-4)
+    //    At/after: local is in standard time (UTC-5)
+    // ----------------------------------------------------------------
+    Serial.println(F("3. US Eastern fall-back 2026-11-01 06:00 UTC:"));
+    {
+        uint64_t transition = TimezoneTranslator::dateToMs(2026, 11, 1, 6, 0, 0);
+
+        // 1 ms before: DST → 01:59:59.999 EDT
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(transition - 1, TZ_EST));
+        check(F("1 ms before: hour=01 min=59 (EDT)"), ts.hour == 1 && ts.minute == 59);
+
+        // At transition: standard → 01:00:00.000 EST
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(transition, TZ_EST));
+        check(F("At transition: hour=01 (EST)"), ts.hour == 1 && ts.minute == 0);
+
+        // 1 ms after: standard → 01:00:00.001 EST
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(transition + 1, TZ_EST));
+        check(F("1 ms after:  hour=01 (EST)"), ts.hour == 1 && ts.minute == 0 && ts.ms == 1);
+    }
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // 4. Fall-back overlap — prefer_dst behaviour
+    //    01:30:00 local on 2026-11-01 is ambiguous.
+    //    prefer_dst=true  → DST (EDT UTC-4) → 05:30 UTC
+    //    prefer_dst=false → standard (EST UTC-5) → 06:30 UTC
+    // ----------------------------------------------------------------
+    Serial.println(F("4. Fall-back overlap (01:30 on 2026-11-01):"));
+    {
+        uint64_t localAmbig = TimezoneTranslator::dateToMs(2026, 11, 1, 1, 30, 0);
+
+        uint64_t utcDst = tz.localToUtc(localAmbig, TZ_EST, true);   // prefer DST
+        uint64_t utcStd = tz.localToUtc(localAmbig, TZ_EST, false);  // prefer standard
+
+        uint64_t expected_dst = TimezoneTranslator::dateToMs(2026, 11, 1, 5, 30, 0);
+        uint64_t expected_std = TimezoneTranslator::dateToMs(2026, 11, 1, 6, 30, 0);
+
+        check(F("prefer_dst=true  → 05:30 UTC (EDT)"), utcDst == expected_dst);
+        check(F("prefer_dst=false → 06:30 UTC (EST)"), utcStd == expected_std);
+
+        // Outside overlap (02:30 EST Nov 1 is unambiguous standard)
+        uint64_t localUnambig = TimezoneTranslator::dateToMs(2026, 11, 1, 2, 30, 0);
+        uint64_t utcA = tz.localToUtc(localUnambig, TZ_EST, true);
+        uint64_t utcB = tz.localToUtc(localUnambig, TZ_EST, false);
+        check(F("02:30 (unambiguous): both prefer_dst agree"), utcA == utcB);
+    }
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // 5. Southern hemisphere DST — Australia/Sydney (AEST/AEDT)
+    //    DST starts: 1st Sunday October at 02:00 AEST → UTC+11
+    //    In 2026: Oct 4 02:00 AEST = Oct 3 16:00 UTC
+    //    DST ends:  1st Sunday April at 03:00 AEDT → UTC+10
+    //    In 2027: Apr 4 03:00 AEDT = Apr 3 16:00 UTC
+    // ----------------------------------------------------------------
+    Serial.println(F("5. Southern hemisphere DST (Australia/Sydney):"));
+    {
+        static const TimezoneDefinition TZ_AEST = { 10, 1, 4, 1, 0, 2, 3, 600, 660 };
+
+        // June (deep winter in southern = AEST, UTC+10) → offset 600
+        uint64_t winterAust = TimezoneTranslator::dateToMs(2026, 6, 15, 12, 0, 0);
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(winterAust, TZ_AEST));
+        check(F("Jun 15 12:00 UTC → 22:00 AEST (+10)"), ts.hour == 22 && ts.minute == 0);
+
+        // December (summer in southern = AEDT, UTC+11) → offset 660
+        uint64_t summerAust = TimezoneTranslator::dateToMs(2026, 12, 15, 12, 0, 0);
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(summerAust, TZ_AEST));
+        check(F("Dec 15 12:00 UTC → 23:00 AEDT (+11)"), ts.hour == 23 && ts.minute == 0);
+
+        // Spring-forward: Oct 3 16:00:00 UTC  (1 ms before → AEST, at → AEDT)
+        uint64_t austStart = TimezoneTranslator::dateToMs(2026, 10, 3, 16, 0, 0);
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(austStart - 1, TZ_AEST));
+        check(F("1 ms before AEDT start → 01:59 AEST (+10)"),
+              ts.hour == 1 && ts.minute == 59);
+        TimezoneTranslator::toTimeStruct(&ts, tz.utcToLocal(austStart, TZ_AEST));
+        check(F("At AEDT start → 03:00 AEDT (+11)"), ts.hour == 3 && ts.minute == 0);
+    }
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // 6. 32-bit rollover heuristic — UNIX_OFFSET_2020 = 1577836800
+    // ----------------------------------------------------------------
+    Serial.println(F("6. 32-bit rollover heuristic:"));
+    {
+        // Exactly at cutoff: treated as 2020-01-01 00:00:00 UTC
+        uint64_t atCutoff = TimezoneTranslator::dateToMs(2020, 1, 1, 0, 0, 0);
+        uint64_t r1 = tz.utcToLocal((uint32_t)UNIX_OFFSET_2020, TZ_UTC);
+        check(F("At 2020-01-01 → no rollover"), r1 == atCutoff);
+
+        // One second above cutoff: 2020-01-01 00:00:01 UTC
+        uint64_t r2 = tz.utcToLocal((uint32_t)(UNIX_OFFSET_2020 + 1), TZ_UTC);
+        check(F("UNIX_OFFSET_2020+1 → 2020-01-01 00:00:01"), r2 == atCutoff + 1000ULL);
+
+        // One second below cutoff: treated as rolled over (add 2^32 seconds)
+        uint64_t r3 = tz.utcToLocal((uint32_t)(UNIX_OFFSET_2020 - 1), TZ_UTC);
+        uint64_t expected_rolled = ((uint64_t)(UNIX_OFFSET_2020 - 1) + 4294967296ULL) * 1000ULL;
+        check(F("UNIX_OFFSET_2020-1 → rolled over"), r3 == expected_rolled);
+
+        // Far below cutoff (100000000): rollover applied
+        uint64_t r4 = tz.utcToLocal((uint32_t)100000000UL, TZ_UTC);
+        uint64_t expected_far = ((uint64_t)100000000UL + 4294967296ULL) * 1000ULL;
+        check(F("100000000 → rollover applied"), r4 == expected_far);
+    }
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // 7. Leap year edge cases
+    // ----------------------------------------------------------------
+    Serial.println(F("7. Leap year edge cases:"));
+    {
+        // 2024 is a leap year — Feb 29 exists
+        uint64_t feb29 = TimezoneTranslator::dateToMs(2024, 2, 29, 0, 0, 0);
+        TimezoneTranslator::toTimeStruct(&ts, feb29);
+        check(F("2024-02-29 exists (month=2 day=29)"), ts.year == 2024 && ts.month == 2 && ts.day == 29);
+
+        // Day after Feb 29 in 2024 must be Mar 1
+        TimezoneTranslator::toTimeStruct(&ts, feb29 + 86400000ULL);
+        check(F("2024-02-29 + 1 day = 2024-03-01"), ts.year == 2024 && ts.month == 3 && ts.day == 1);
+
+        // 2100 is NOT a leap year (divisible by 100 but not 400)
+        // Feb 28, 2100 + 1 day should be Mar 1 (not Feb 29)
+        uint64_t feb28_2100 = TimezoneTranslator::dateToMs(2100, 2, 28, 0, 0, 0);
+        TimezoneTranslator::toTimeStruct(&ts, feb28_2100 + 86400000ULL);
+        check(F("2100-02-28 + 1 day = 2100-03-01 (not leap)"),
+              ts.year == 2100 && ts.month == 3 && ts.day == 1);
+
+        // 2000 IS a leap year (divisible by 400)
+        uint64_t feb29_2000 = TimezoneTranslator::dateToMs(2000, 2, 29, 0, 0, 0);
+        TimezoneTranslator::toTimeStruct(&ts, feb29_2000);
+        check(F("2000-02-29 exists (leap, div 400)"),
+              ts.year == 2000 && ts.month == 2 && ts.day == 29);
+    }
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // 8. dateToMs / toTimeStruct round-trip
+    // ----------------------------------------------------------------
+    Serial.println(F("8. dateToMs <-> toTimeStruct round-trip:"));
+    {
+        struct { uint16_t y; uint8_t mo,d,h,mi,s; } cases[] = {
+            { 1970,  1,  1,  0,  0,  0 },   // epoch
+            { 2024,  2, 29, 13, 45, 22 },   // leap day
+            { 2026,  3,  8,  7,  0,  0 },   // spring-forward moment (US Eastern)
+            { 2026, 11,  1,  6,  0,  0 },   // fall-back moment (US Eastern)
+            { 2100,  3,  1,  0,  0,  0 },   // post-2100 non-leap boundary
+            { 2400,  7,  4, 23, 59, 59 },   // far future
+        };
+        for (uint8_t i = 0; i < 6; i++) {
+            uint64_t timestampMs = TimezoneTranslator::dateToMs(cases[i].y, cases[i].mo, cases[i].d,
+                                                       cases[i].h, cases[i].mi, cases[i].s);
+            TimezoneTranslator::toTimeStruct(&ts, timestampMs);
+            bool ok = (ts.year   == cases[i].y  && ts.month  == cases[i].mo &&
+                       ts.day    == cases[i].d   && ts.hour   == cases[i].h  &&
+                       ts.minute == cases[i].mi  && ts.second == cases[i].s  &&
+                       ts.ms     == 0);
+            check(F("dateToMs->toTimeStruct round-trips"), ok);
+        }
+    }
+    Serial.println();
+
+    // ----------------------------------------------------------------
+    // Summary
+    // ----------------------------------------------------------------
+    Serial.print(F("=== Results: "));
+    Serial.print(g_pass); Serial.print(F(" passed, "));
+    Serial.print(g_fail); Serial.println(F(" failed ==="));
+    Serial.println();
+}
+
+
+
 
 void setup() {
     Serial.begin(115200);
@@ -408,6 +672,7 @@ void setup() {
 
     runUsageExamples();
     runBenchmark();
+    runUnitTests();
 }
 
 void loop() {

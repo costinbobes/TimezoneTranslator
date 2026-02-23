@@ -1,23 +1,32 @@
 /*
  Name:        TimezoneTranslator.cpp
  Created:     2/21/2026 2:21:53 PM
- Author:      Costin
+ Author:      Costin Bobes
  Editor:      http://www.visualmicro.com
 */
 /*
 Library for converting a time stamp between UTC and local
 Takes into account the time zone and some basic DST rules
-(C)2010-2026 Costin Bobes
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+Copyright (c) 2010-2026 Costin Bobes
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 */
 
 #include "TimezoneTranslator.h"
@@ -61,17 +70,18 @@ uint64_t TimezoneTranslator::utcToLocal(uint64_t utcMs) {
     return utcMs + (int64_t)offsetMin * 60000LL;
 }
 
-uint64_t TimezoneTranslator::localToUtc(uint64_t localMs, const TimezoneDefinition& tz) {
+uint64_t TimezoneTranslator::localToUtc(uint64_t localMs, const TimezoneDefinition& tz,
+                                        bool prefer_dst) {
     if (tz.dst_start_month == 0) {
         return localMs - (int64_t)tz.offset_min * 60000LL;
     }
     DstCache tempCache = { 0, 0, 0 };
-    int16_t offsetMin = getOffsetForLocal(localMs, tz, tempCache);
+    int16_t offsetMin = getOffsetForLocal(localMs, tz, tempCache, prefer_dst);
     return localMs - (int64_t)offsetMin * 60000LL;
 }
 
-uint64_t TimezoneTranslator::localToUtc(uint64_t localMs) {
-    int16_t offsetMin = getOffsetForLocal(localMs, _tz, _cache);
+uint64_t TimezoneTranslator::localToUtc(uint64_t localMs, bool prefer_dst) {
+    int16_t offsetMin = getOffsetForLocal(localMs, _tz, _cache, prefer_dst);
     return localMs - (int64_t)offsetMin * 60000LL;
 }
 
@@ -83,12 +93,13 @@ uint64_t TimezoneTranslator::utcToLocal(uint32_t utcSec) {
     return utcToLocal(normalize32(utcSec));
 }
 
-uint64_t TimezoneTranslator::localToUtc(uint32_t localSec, const TimezoneDefinition& tz) {
-    return localToUtc(normalize32(localSec), tz);
+uint64_t TimezoneTranslator::localToUtc(uint32_t localSec, const TimezoneDefinition& tz,
+                                        bool prefer_dst) {
+    return localToUtc(normalize32(localSec), tz, prefer_dst);
 }
 
-uint64_t TimezoneTranslator::localToUtc(uint32_t localSec) {
-    return localToUtc(normalize32(localSec));
+uint64_t TimezoneTranslator::localToUtc(uint32_t localSec, bool prefer_dst) {
+    return localToUtc(normalize32(localSec), prefer_dst);
 }
 
 // ---- 32-bit rollover normalization ----
@@ -324,7 +335,8 @@ int16_t TimezoneTranslator::getOffsetForUtc(uint64_t utcMs,
 
 int16_t TimezoneTranslator::getOffsetForLocal(uint64_t localMs,
                                                const TimezoneDefinition& tz,
-                                               DstCache& cache) {
+                                               DstCache& cache,
+                                               bool prefer_dst) {
     if (tz.dst_start_month == 0) {
         return tz.offset_min;
     }
@@ -367,12 +379,28 @@ int16_t TimezoneTranslator::getOffsetForLocal(uint64_t localMs,
     uint64_t dstStartLocal = dstStartMs + (int64_t)tz.offset_min * 60000LL;
     uint64_t dstEndLocal   = dstEndMs   + (int64_t)tz.offset_dst_min * 60000LL;
 
+    // The fall-back overlap zone in local time: the range of local times that
+    // appear twice (once in DST, once in standard time).  Lower bound is the
+    // instant clocks are set back expressed in standard-time, upper bound is
+    // the same instant expressed in DST (i.e. dstEndLocal).
+    uint64_t overlapStart = dstEndMs + (int64_t)tz.offset_min * 60000LL;
+
     if (dstStartMs < dstEndMs) {
+        // Northern hemisphere
         if (localMs >= dstStartLocal && localMs < dstEndLocal) {
+            if (!prefer_dst && localMs >= overlapStart) {
+                // Caller wants standard-time interpretation of the overlap hour.
+                return tz.offset_min;
+            }
             return tz.offset_dst_min;
         }
     } else {
+        // Southern hemisphere
         if (localMs >= dstStartLocal || localMs < dstEndLocal) {
+            if (!prefer_dst && localMs < dstEndLocal && localMs >= overlapStart) {
+                // Caller wants standard-time interpretation of the overlap hour.
+                return tz.offset_min;
+            }
             return tz.offset_dst_min;
         }
     }

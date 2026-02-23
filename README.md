@@ -162,21 +162,44 @@ DST/standard period.
 #### `localToUtc` — 64-bit milliseconds
 
 ```cpp
-uint64_t localToUtc(uint64_t localMs, const TimezoneDefinition& tz);
-uint64_t localToUtc(uint64_t localMs);  // uses default tz
+uint64_t localToUtc(uint64_t localMs, const TimezoneDefinition& tz, bool prefer_dst = true);
+uint64_t localToUtc(uint64_t localMs, bool prefer_dst = true);  // uses default tz
 ```
 Converts a local millisecond timestamp to UTC milliseconds.
 
-During the DST fall-back overlap (the "ambiguous hour") the standard-time
-interpretation is returned (the earlier UTC instant).
+#### Fall-back overlap (ambiguous hour)
+
+When clocks are set back, local times in the overlap window appear twice — once
+during DST and once during standard time.  For example, US Eastern 01:30 on a
+fall-back day maps to either **05:30 UTC** (EDT, the earlier instant) or
+**06:30 UTC** (EST, the later instant).
+
+Use the optional `prefer_dst` parameter to choose which UTC instant is returned:
+
+| `prefer_dst` | Interpretation   | UTC instant |
+|:---:|---|---|
+| `true` (default) | DST offset applied | **earlier** UTC (first clock occurrence) |
+| `false`          | Standard offset applied | **later** UTC (second clock occurrence) |
+
+```cpp
+uint64_t ambiguous = TimezoneTranslator::dateToMs(2026, 11, 1, 1, 30, 0);
+
+// DST interpretation (default) — 05:30 UTC
+uint64_t utcDst = tz.localToUtc(ambiguous, TZ_EST);           // prefer_dst = true
+
+// Standard interpretation — 06:30 UTC
+uint64_t utcStd = tz.localToUtc(ambiguous, TZ_EST, false);    // prefer_dst = false
+```
+
+Outside the overlap window `prefer_dst` has no effect.
 
 #### `utcToLocal` / `localToUtc` — 32-bit seconds
 
 ```cpp
 uint64_t utcToLocal(uint32_t utcSec, const TimezoneDefinition& tz);
 uint64_t utcToLocal(uint32_t utcSec);
-uint64_t localToUtc(uint32_t localSec, const TimezoneDefinition& tz);
-uint64_t localToUtc(uint32_t localSec);
+uint64_t localToUtc(uint32_t localSec, const TimezoneDefinition& tz, bool prefer_dst = true);
+uint64_t localToUtc(uint32_t localSec, bool prefer_dst = true);
 ```
 Accept a `uint32_t` seconds timestamp, apply the Jan-1-2020 rollover
 heuristic internally, then perform the conversion.  **Output is always
@@ -295,15 +318,41 @@ TimezoneDefinition TZ_AEST = { 10, 1, 4, 1, 0, 2, 3,  600,  660 };
 TimezoneDefinition TZ_NZST = { 9,-1, 4, 1, 0, 2, 3,  720,  780 };
 ```
 
+## Caveats and Known Limitations
+
+### 32-bit timestamp heuristic only covers 2020 and later
+
+The `normalize32()` heuristic treats any 32-bit value **below**
+`UNIX_OFFSET_2020` (January 1, 2020) as a post-2038 rolled-over timestamp and
+adds 2³² seconds to it.  Passing genuine **pre-2020 historical timestamps** as
+32-bit values will silently produce wrong results.
+
+**Recommendation:** use the 64-bit `uint64_t` overloads whenever possible.
+If you must use a 32-bit source, convert it to 64-bit milliseconds with
+`dateToMs()` before calling the library.
+
+### Spring-forward gap produces undefined local times
+
+During the spring-forward gap (e.g. 02:00–03:00 US Eastern), those local
+times never actually exist.  Passing a local time in this gap to `localToUtc()`
+returns a UTC value as though the time is in DST; the result may not round-trip
+correctly through `utcToLocal()`.
+
 ## Examples
 
 ### Benchmark
 
-`examples/Benchmark/Benchmark.ino` — Demonstrates the full API with readable
-output, followed by raw performance measurements:
+`examples/Benchmark/Benchmark.ino` — Three-part example:
 
-- No-DST fast path, cold vs warm cache, far-future years, batch throughput,
-  32-bit vs 64-bit input overhead, `toTimeStruct` and `dateToMs` speed.
+- **Part 1** — API usage demonstration with readable output.
+- **Part 2** — Raw performance measurements (cold/warm cache, far-future years,
+  batch throughput, 32-bit vs 64-bit overhead, `toTimeStruct` / `dateToMs` speed).
+- **Part 3** — Unit tests covering: predefined timezone constants, DST boundary
+  transitions (exact ms before/after switch), fall-back overlap with both
+  `prefer_dst` settings, 2020 rollover heuristic edge cases, leap-year edge
+  cases (Feb 29 on leap year; year 2100 which is *not* a leap year), and
+  `dateToMs` ↔ `toTimeStruct` round-tripping.  Prints PASS/FAIL for each case
+  and a summary at the end.
 
 ### DS3231 RTC
 
@@ -352,13 +401,11 @@ are stateless and thread-safe.
 
 Copyright (C) 2010-2026 Costin Bobes
 
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version.
+MIT License — see [LICENSE.txt](LICENSE.txt) for full text.
 
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE.  See the
-[GNU General Public License](https://www.gnu.org/licenses/gpl-3.0.html)
-for more details.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the conditions stated in the license file.

@@ -21,7 +21,7 @@
  * synchronization (mutex).  Using separate instances per core is safe without
  * locking.
  *
- * @copyright (C) 2010-2026 Costin Bobes — GPL v3+
+ * @copyright (C) 2010-2026 Costin Bobes — MIT License
  */
 
 #ifndef _TimezoneTranslator_h
@@ -170,22 +170,34 @@ public:
 
 	/**
 	 * @brief Convert a local millisecond timestamp to UTC.
-	 * @param localMs  Local milliseconds (UTC + offset applied).
-	 * @param tz       Timezone definition.
+	 * @param localMs    Local milliseconds (UTC + offset applied).
+	 * @param tz         Timezone definition.
+	 * @param prefer_dst When @c true (default), the DST interpretation is
+	 *                   used during the fall-back overlap hour, yielding the
+	 *                   earlier UTC instant.  When @c false, the standard-time
+	 *                   interpretation is used, yielding the later UTC instant.
 	 * @return UTC millisecond timestamp.
 	 *
-	 * @note During the DST fall-back overlap the standard-time
-	 *       interpretation is returned (the earlier UTC instant).
+	 * @par Fall-back overlap (ambiguous hour)
+	 * When clocks are set back (e.g. 02:00 EDT → 01:00 EST), the local
+	 * times in the overlap range appear twice.  For example, 01:30 US/Eastern
+	 * on a fall-back day maps to either 05:30 UTC (EDT interpretation) or
+	 * 06:30 UTC (EST interpretation).  Use @p prefer_dst to select which
+	 * UTC instant is returned:
+	 * - @c prefer_dst = @c true  → DST offset applied → earlier UTC instant.
+	 * - @c prefer_dst = @c false → standard offset applied → later UTC instant.
 	 */
-	uint64_t localToUtc(uint64_t localMs, const TimezoneDefinition& tz);
+	uint64_t localToUtc(uint64_t localMs, const TimezoneDefinition& tz,
+	                    bool prefer_dst = true);
 
 	/**
 	 * @brief Convert a local millisecond timestamp to UTC using the
 	 *        default timezone set by setLocalTimezone().
-	 * @param localMs  Local milliseconds.
+	 * @param localMs    Local milliseconds.
+	 * @param prefer_dst See localToUtc(uint64_t, const TimezoneDefinition&, bool).
 	 * @return UTC millisecond timestamp.
 	 */
-	uint64_t localToUtc(uint64_t localMs);
+	uint64_t localToUtc(uint64_t localMs, bool prefer_dst = true);
 
 	/**
 	 * @brief Convert a 32-bit UTC seconds timestamp to local milliseconds.
@@ -205,15 +217,17 @@ public:
 
 	/**
 	 * @brief Convert a 32-bit local seconds timestamp to UTC milliseconds.
-	 * @param localSec  Local seconds (uint32_t).
-	 * @param tz        Timezone definition.
+	 * @param localSec   Local seconds (uint32_t).
+	 * @param tz         Timezone definition.
+	 * @param prefer_dst See localToUtc(uint64_t, const TimezoneDefinition&, bool).
 	 * @return UTC millisecond timestamp (64-bit).
 	 */
-	uint64_t localToUtc(uint32_t localSec, const TimezoneDefinition& tz);
+	uint64_t localToUtc(uint32_t localSec, const TimezoneDefinition& tz,
+	                    bool prefer_dst = true);
 
-	/** @copydoc localToUtc(uint32_t,const TimezoneDefinition&)
+	/** @copydoc localToUtc(uint32_t,const TimezoneDefinition&,bool)
 	 *  Uses the default timezone set by setLocalTimezone(). */
-	uint64_t localToUtc(uint32_t localSec);
+	uint64_t localToUtc(uint32_t localSec, bool prefer_dst = true);
 
 	/**
 	 * @brief Decompose a millisecond timestamp into a TimeStruct.
@@ -265,7 +279,7 @@ private:
 	static int16_t getOffsetForUtc(uint64_t utcMs, const TimezoneDefinition& tz, DstCache& cache);
 
 	/** @brief Determine UTC offset in minutes for a local ms timestamp (cache-accelerated). */
-	static int16_t getOffsetForLocal(uint64_t localMs, const TimezoneDefinition& tz, DstCache& cache);
+	static int16_t getOffsetForLocal(uint64_t localMs, const TimezoneDefinition& tz, DstCache& cache, bool prefer_dst = true);
 
 	/** @brief Compute both DST transition UTC timestamps for a given year. */
 	static void computeDstTransitions(uint16_t year, const TimezoneDefinition& tz,
