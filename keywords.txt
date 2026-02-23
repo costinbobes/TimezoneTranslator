@@ -1,0 +1,24 @@
+# ======================================================================
+# TimezoneTranslator library — keywords.txt
+# Syntax highlighting for the Arduino IDE.
+#
+# KEYWORD1 = classes/datatypes (orange)
+# KEYWORD2 = methods/functions (brown)
+# LITERAL1 = constants (blue)
+# ======================================================================
+
+# --- Classes / Structs (KEYWORD1) ---
+TimezoneTranslator	KEYWORD1
+TimezoneDefinition	KEYWORD1
+DstCache	KEYWORD1
+TimeStruct	KEYWORD1
+
+# --- Methods (KEYWORD2) ---
+setLocalTimezone	KEYWORD2
+utcToLocal	KEYWORD2
+localToUtc	KEYWORD2
+toTimeStruct	KEYWORD2
+dateToMs	KEYWORD2
+
+# --- Constants (LITERAL1) ---
+UNIX_OFFSET_2020	LITERAL1
